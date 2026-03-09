@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Leaflet */
+.leaflet-container { font-family: 'Source Sans 3', sans-serif; z-index: 0; }
+
+/* Panel statis di atas peta — tidak ikut scroll */
+.panel-simulasi-kanan {
+  position: relative;
+  z-index: 10;
+  background: #ffffff;
+  overflow-y: auto;
+}
+
+/* Legenda WAJIB tidak transparan */
+.legenda-panel {
+  background: #ffffff !important;
+  border: 1.5px solid #c3c9c3;
+  border-radius: 8px;
+  padding: 10px 14px;
+  opacity: 1 !important;
+}
+
+/* Tombol toggle info */
+.btn-toggle {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1.5px solid;
+}
+
+/* Tooltip Leaflet */
+.leaflet-tooltip {
+  font-family: 'Source Sans 3', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: #f0f4f0; }
+::-webkit-scrollbar-thumb { background: #40916c; border-radius: 2px; }
