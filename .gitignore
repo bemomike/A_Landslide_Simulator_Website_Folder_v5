@@ -6,8 +6,3 @@ venv/
 node_modules/
 dist/
 .cache/
-backend/app/model/trained/*.pkl
-backend/app/data/geojson_export/*.geojson
-frontend/public/assets/images/*.jpg
-frontend/public/assets/images/*.jpeg
-frontend/public/assets/images/*.png
