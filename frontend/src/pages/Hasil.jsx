@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MapContainer, TileLayer, GeoJSON } from 'react-leaflet'
 import axios from 'axios'
@@ -28,7 +28,6 @@ export default function Hasil() {
   const [unduhLoad, setUnduhLoad] = useState(false)
 
   useEffect(() => {
-    // Coba sessionStorage dulu
     const raw = sessionStorage.getItem('hasil_simulasi')
     if (raw) {
       try {
@@ -36,20 +35,16 @@ export default function Hasil() {
         if (parsed && parsed.kecamatan) { setData(parsed); return }
       } catch {}
     }
-    // Fallback: ambil hasil terakhir dari Railway
-    const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
     fetch(`${API}/api/hasil/terakhir`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d && d.kecamatan) setData(d) })
       .catch(() => {})
   }, [])
 
-  // Belum ada data — halaman terkunci
+  // Halaman terkunci sebelum data ada
   if (!data) return (
     <div className="flex flex-col items-center justify-center min-h-screen gap-4 bg-gray-50">
-      <div
-        className="rounded-xl p-8 text-center shadow-sm border border-gray-100 bg-white max-w-sm"
-      >
+      <div className="rounded-xl p-8 text-center shadow-sm border border-gray-100 bg-white max-w-sm">
         <p className="text-2xl mb-3">🔒</p>
         <p className="font-bold text-gray-800 mb-1">Hasil Belum Tersedia</p>
         <p className="text-sm text-gray-500 mb-5">
@@ -69,8 +64,9 @@ export default function Hasil() {
   const { kecamatan, curah_hujan, sektor = [], ringkasan = {}, simulasi_id } = data
   const kecTitle = kecamatan.charAt(0) + kecamatan.slice(1).toLowerCase()
 
-  // GeoJSON untuk peta hasil
-  const geoHasil = {
+  // useMemo — GeoJSON hanya dibuat ulang jika data berubah, bukan tiap render
+  // Ini yang mencegah React error #310
+  const geoHasil = useMemo(() => ({
     type: 'FeatureCollection',
     features: sektor
       .filter(s => s.geometry)
@@ -86,7 +82,7 @@ export default function Hasil() {
           veg:   s.vegetasi,
         },
       }))
-  }
+  }), [sektor])
 
   const styleSektor = useCallback((feat) => ({
     fillColor:   feat.properties?.warna || '#cccccc',
@@ -98,7 +94,7 @@ export default function Hasil() {
   const onEachSektor = useCallback((feat, layer) => {
     const p = feat.properties
     layer.bindTooltip(
-      `<strong>${p.id}</strong><br/>
+      `<strong>${p.id || '—'}</strong><br/>
        ${p.label} — ${p.pct}%<br/>
        Tanah: ${p.tanah}<br/>
        Vegetasi: ${p.veg}`,
@@ -133,13 +129,19 @@ export default function Hasil() {
 
       {/* ══ KIRI/TENGAH: Peta arsiran Leaflet ══ */}
       <div className="flex-1 relative">
-        <MapContainer center={[-7.15, 110.45]} zoom={11} className="w-full h-full">
+        <MapContainer
+          center={[-7.15, 110.45]}
+          zoom={11}
+          className="w-full h-full"
+          key={kecamatan}
+        >
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution="© OpenStreetMap contributors"
           />
           {geoHasil.features.length > 0 && (
             <GeoJSON
+              key={`geo-${kecamatan}-${simulasi_id}`}
               data={geoHasil}
               style={styleSektor}
               onEachFeature={onEachSektor}
@@ -147,18 +149,17 @@ export default function Hasil() {
           )}
         </MapContainer>
 
-        {/* Legenda potensi — di pojok kiri bawah peta, tidak transparan */}
+        {/* Legenda potensi — pojok kiri bawah peta */}
         <div
           className="absolute bottom-4 left-4 z-20 legenda-panel"
-          style={{ minWidth: '180px' }}
+          style={{ minWidth: '190px', background: '#fff', border: '1.5px solid #c3c9c3',
+                   borderRadius: '8px', padding: '10px 14px' }}
         >
           <p className="text-xs font-bold text-gray-700 mb-2">Tingkat Potensi Longsor</p>
           {Object.entries(WARNA_POTENSI).map(([lbl, warna]) => (
             <div key={lbl} className="flex items-center gap-2 mb-1">
-              <div
-                className="w-5 h-4 rounded-sm border border-gray-300 flex-shrink-0"
-                style={{ background: warna }}
-              />
+              <div className="w-5 h-4 rounded-sm border border-gray-300 flex-shrink-0"
+                   style={{ background: warna }} />
               <span className="text-xs text-gray-700">
                 {lbl}
                 <span className="text-gray-400 ml-1">{INTERVAL_POTENSI[lbl]}</span>
@@ -168,7 +169,7 @@ export default function Hasil() {
         </div>
       </div>
 
-      {/* ══ KANAN: Panel hasil statis ══ */}
+      {/* ══ KANAN: Panel hasil ══ */}
       <div
         className="w-80 flex-shrink-0 overflow-y-auto border-l border-gray-200 shadow-lg bg-white"
         style={{ height: tinggiLayar }}
@@ -176,10 +177,8 @@ export default function Hasil() {
         <div className="p-4 space-y-4">
 
           {/* Ringkasan */}
-          <div
-            className="rounded-lg p-3 border"
-            style={{ background: '#f0fdf4', borderColor: '#86efac' }}
-          >
+          <div className="rounded-lg p-3 border"
+               style={{ background: '#f0fdf4', borderColor: '#86efac' }}>
             <p className="text-xs font-bold uppercase tracking-wide text-green-800 mb-2">
               Hasil Simulasi
             </p>
@@ -195,40 +194,31 @@ export default function Hasil() {
                 <div className="text-gray-500">Total Sektor</div>
               </div>
               <div className="bg-white rounded p-2 text-center border border-gray-100">
-                <div
-                  className="font-bold text-lg"
-                  style={{
-                    color: WARNA_POTENSI[ringkasan.label_dominan] === '#ffffbf'
-                      ? '#b8b800' : (WARNA_POTENSI[ringkasan.label_dominan] || '#666')
-                  }}
-                >
+                <div className="font-bold text-lg"
+                     style={{ color: WARNA_POTENSI[ringkasan.label_dominan] === '#ffffbf'
+                       ? '#b8b800' : (WARNA_POTENSI[ringkasan.label_dominan] || '#666') }}>
                   {ringkasan.rerata_potensi}%
                 </div>
                 <div className="text-gray-500">Rerata Potensi</div>
               </div>
             </div>
             <div className="mt-2 text-center">
-              <span
-                className="text-xs px-3 py-1 rounded-full font-semibold text-white"
-                style={{
-                  background: WARNA_POTENSI[ringkasan.label_dominan] === '#ffffbf'
-                    ? '#b8b800' : (WARNA_POTENSI[ringkasan.label_dominan] || '#888')
-                }}
-              >
+              <span className="text-xs px-3 py-1 rounded-full font-semibold text-white"
+                    style={{ background: WARNA_POTENSI[ringkasan.label_dominan] === '#ffffbf'
+                      ? '#b8b800' : (WARNA_POTENSI[ringkasan.label_dominan] || '#888') }}>
                 Dominan: {ringkasan.label_dominan}
               </span>
             </div>
           </div>
 
-          {/* Sebaran per label — legenda ada di sini, bukan di Panduan */}
-          <div className="legenda-panel">
+          {/* Sebaran per label */}
+          <div style={{ background: '#fff', border: '1.5px solid #c3c9c3',
+                        borderRadius: '8px', padding: '10px 14px' }}>
             <p className="text-xs font-bold text-gray-700 mb-2">Sebaran Tingkat Potensi</p>
             {Object.entries(ringkasan.per_label || {}).map(([lbl, info]) => (
               <div key={lbl} className="flex items-center gap-2 mb-1">
-                <div
-                  className="w-4 h-3 rounded-sm border border-gray-300 flex-shrink-0"
-                  style={{ background: WARNA_POTENSI[lbl] }}
-                />
+                <div className="w-4 h-3 rounded-sm border border-gray-300 flex-shrink-0"
+                     style={{ background: WARNA_POTENSI[lbl] }} />
                 <span className="text-xs text-gray-700 flex-1">{lbl}</span>
                 <span className="text-xs font-bold text-gray-600">
                   {info.jumlah_sektor} sektor
@@ -237,7 +227,7 @@ export default function Hasil() {
             ))}
           </div>
 
-          {/* Tabel sektor — diurutkan dari potensi tertinggi */}
+          {/* Tabel sektor — kolom sesuai skrip */}
           <div>
             <p className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">
               Detail per Sektor
@@ -248,27 +238,21 @@ export default function Hasil() {
                 .map((s, i) => {
                   const warnaTeks = s.warna === '#ffffbf' ? '#b8b800' : s.warna
                   return (
-                    <div
-                      key={i}
-                      className="rounded-lg p-2 border text-xs"
-                      style={{ borderLeft: `4px solid ${s.warna}`, background: '#fafafa' }}
-                    >
+                    <div key={i} className="rounded-lg p-2 border text-xs"
+                         style={{ borderLeft: `4px solid ${s.warna}`, background: '#fafafa' }}>
                       <div className="flex justify-between items-center">
-                        <span className="font-bold text-gray-800 truncate">
-                          {s.id_sektor}
-                        </span>
+                        <span className="font-bold text-gray-800 truncate">{s.id_sektor}</span>
                         <span className="font-bold ml-1" style={{ color: warnaTeks }}>
                           {s.prediksi_pct}%
                         </span>
                       </div>
-                      <div className="text-gray-500 truncate">{s.jenis_tanah}</div>
-                      <div className="text-gray-500 truncate">{s.vegetasi}</div>
-                      <div className="text-gray-400">Luas: {s.luas_ha} Ha</div>
+                      <div className="text-gray-600">Tanah: {s.jenis_tanah}</div>
+                      <div className="text-gray-600">Pohon: {s.vegetasi}</div>
+                      <div className="text-gray-500">Luas: {s.luas_ha} Ha</div>
+                      <div className="text-gray-500">CH: {s.curah_hujan} mm</div>
                       <div className="mt-0.5">
-                        <span
-                          className="px-1.5 py-0.5 rounded text-white text-xs font-semibold"
-                          style={{ background: warnaTeks }}
-                        >
+                        <span className="px-1.5 py-0.5 rounded text-white text-xs font-semibold"
+                              style={{ background: warnaTeks }}>
                           {s.label_potensi}
                         </span>
                       </div>
@@ -283,7 +267,7 @@ export default function Hasil() {
             <button
               onClick={unduh}
               disabled={unduhLoad}
-              className="w-full py-2.5 rounded-xl font-bold text-sm transition-all border-2"
+              className="w-full py-2.5 rounded-xl font-bold text-sm border-2 transition-all"
               style={{ borderColor: '#1a3a2a', color: '#1a3a2a', background: 'white' }}
             >
               {unduhLoad ? '⏳ Mengunduh…' : '⬇ Unduh Hasil Simulasi (.xlsx)'}
