@@ -6,15 +6,14 @@ import 'leaflet/dist/leaflet.css'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
-const WARNA_POTENSI = {
+const WARNA = {
   'Sangat Rendah': '#1a9641',
   'Rendah':        '#a6d96a',
   'Sedang':        '#ffffbf',
   'Tinggi':        '#fdae61',
   'Sangat Tinggi': '#d7191c',
 }
-
-const INTERVAL_POTENSI = {
+const INTERVAL = {
   'Sangat Rendah': '< 20%',
   'Rendah':        '20% – 40%',
   'Sedang':        '40% – 60%',
@@ -22,30 +21,45 @@ const INTERVAL_POTENSI = {
   'Sangat Tinggi': '≥ 80%',
 }
 
+// Warna teks aman (kuning perlu digelapkan agar terbaca)
+function warnaTeks(hex) {
+  return hex === '#ffffbf' ? '#857f00' : hex
+}
+
 export default function Hasil() {
-  const navigate    = useNavigate()
+  const navigate = useNavigate()
   const [data,      setData]      = useState(null)
+  const [loading,   setLoading]   = useState(true)
   const [unduhLoad, setUnduhLoad] = useState(false)
 
   useEffect(() => {
+    // 1. Coba sessionStorage
     const raw = sessionStorage.getItem('hasil_simulasi')
     if (raw) {
       try {
         const parsed = JSON.parse(raw)
-        if (parsed && parsed.kecamatan) { setData(parsed); return }
+        if (parsed?.kecamatan) { setData(parsed); setLoading(false); return }
       } catch {}
     }
+    // 2. Fallback: ambil hasil terakhir dari Railway
     fetch(`${API}/api/hasil/terakhir`)
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d && d.kecamatan) setData(d) })
+      .then(d => { if (d?.kecamatan) setData(d) })
       .catch(() => {})
+      .finally(() => setLoading(false))
   }, [])
 
-  // Halaman terkunci sebelum data ada
+  // ── Halaman terkunci ────────────────────────────────────────────────────
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-screen bg-gray-50">
+      <p className="text-gray-400 text-sm animate-pulse">Memuat hasil simulasi…</p>
+    </div>
+  )
+
   if (!data) return (
     <div className="flex flex-col items-center justify-center min-h-screen gap-4 bg-gray-50">
-      <div className="rounded-xl p-8 text-center shadow-sm border border-gray-100 bg-white max-w-sm">
-        <p className="text-2xl mb-3">🔒</p>
+      <div className="rounded-xl p-8 text-center shadow border border-gray-100 bg-white max-w-sm">
+        <p className="text-3xl mb-3">🔒</p>
         <p className="font-bold text-gray-800 mb-1">Hasil Belum Tersedia</p>
         <p className="text-sm text-gray-500 mb-5">
           Jalankan simulasi terlebih dahulu dari halaman Simulasi.
@@ -53,7 +67,7 @@ export default function Hasil() {
         <button
           onClick={() => navigate('/simulasi')}
           className="px-6 py-2 rounded-lg text-white text-sm font-semibold"
-          style={{ background: '#1a3a2a' }}
+          style={{ background: '#2d5a27' }}
         >
           Ke Halaman Simulasi
         </button>
@@ -61,44 +75,54 @@ export default function Hasil() {
     </div>
   )
 
-  const { kecamatan, curah_hujan, sektor = [], ringkasan = {}, simulasi_id } = data
-  const kecTitle = kecamatan.charAt(0) + kecamatan.slice(1).toLowerCase()
+  const {
+    id: simulasi_id,
+    kecamatan,
+    curah_hujan,
+    tanggal,
+    sektor    = [],
+    ringkasan = {}
+  } = data
 
-  // useMemo — GeoJSON hanya dibuat ulang jika data berubah, bukan tiap render
-  // Ini yang mencegah React error #310
-  const geoHasil = useMemo(() => ({
+  const kecTitle    = kecamatan.charAt(0).toUpperCase() + kecamatan.slice(1).toLowerCase()
+  const tglFmt      = tanggal ? new Date(tanggal).toLocaleDateString('id-ID',
+                        { day:'2-digit', month:'long', year:'numeric' }) : '—'
+  const sektorTinggi = sektor.filter(s => (s.prediksi_pct || 0) >= 60).length
+
+  // ── GeoJSON (useMemo agar tidak re-render terus) ─────────────────────────
+  const geoData = useMemo(() => ({
     type: 'FeatureCollection',
-    features: sektor
-      .filter(s => s.geometry)
-      .map(s => ({
-        type: 'Feature',
-        geometry: s.geometry,
-        properties: {
-          id:    s.id_sektor,
-          label: s.label_potensi,
-          pct:   s.prediksi_pct,
-          warna: s.warna,
-          tanah: s.jenis_tanah,
-          veg:   s.vegetasi,
-        },
-      }))
+    features: sektor.filter(s => s.geometry).map(s => ({
+      type: 'Feature',
+      geometry: s.geometry,
+      properties: {
+        id:    s.id_sektor,
+        label: s.label_potensi,
+        pct:   s.prediksi_pct,
+        warna: s.warna,
+        tanah: s.jenis_tanah,
+        veg:   s.vegetasi,
+        luas:  s.luas_ha,
+        ch:    s.curah_hujan,
+      }
+    }))
   }), [sektor])
 
   const styleSektor = useCallback((feat) => ({
     fillColor:   feat.properties?.warna || '#cccccc',
     fillOpacity: 0.80,
-    color:       '#333333',
+    color:       '#333',
     weight:      0.8,
   }), [])
 
   const onEachSektor = useCallback((feat, layer) => {
     const p = feat.properties
     layer.bindTooltip(
-      `<strong>${p.id || '—'}</strong><br/>
+      `<strong>${p.id}</strong><br/>
        ${p.label} — ${p.pct}%<br/>
        Tanah: ${p.tanah}<br/>
        Vegetasi: ${p.veg}`,
-      { sticky: true, className: 'text-xs' }
+      { sticky: true }
     )
   }, [])
 
@@ -109,10 +133,10 @@ export default function Hasil() {
       const r = await axios.get(`${API}/api/hasil/unduh/xlsx/${simulasi_id}`, {
         responseType: 'blob'
       })
-      const url  = URL.createObjectURL(r.data)
-      const a    = document.createElement('a')
+      const url = URL.createObjectURL(r.data)
+      const a   = document.createElement('a')
       a.href     = url
-      a.download = `Simulasi_Longsor_${kecTitle}_${new Date().toISOString().slice(0, 10)}.xlsx`
+      a.download = `Simulasi_Longsor_${kecTitle}_${tanggal?.slice(0,10) || 'hasil'}.xlsx`
       a.click()
       URL.revokeObjectURL(url)
     } catch {
@@ -122,167 +146,209 @@ export default function Hasil() {
     }
   }
 
-  const tinggiLayar = 'calc(100vh - 88px)'
-
+  // ── Render ───────────────────────────────────────────────────────────────
   return (
-    <div className="flex overflow-hidden" style={{ height: tinggiLayar }}>
+    <div className="min-h-screen bg-white">
 
-      {/* ══ KIRI/TENGAH: Peta arsiran Leaflet ══ */}
-      <div className="flex-1 relative">
-        <MapContainer
-          center={[-7.15, 110.45]}
-          zoom={11}
-          className="w-full h-full"
-          key={kecamatan}
-        >
-          <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution="© OpenStreetMap contributors"
-          />
-          {geoHasil.features.length > 0 && (
-            <GeoJSON
-              key={`geo-${kecamatan}-${simulasi_id}`}
-              data={geoHasil}
-              style={styleSektor}
-              onEachFeature={onEachSektor}
-            />
-          )}
-        </MapContainer>
-
-        {/* Legenda potensi — pojok kiri bawah peta */}
-        <div
-          className="absolute bottom-4 left-4 z-20 legenda-panel"
-          style={{ minWidth: '190px', background: '#fff', border: '1.5px solid #c3c9c3',
-                   borderRadius: '8px', padding: '10px 14px' }}
-        >
-          <p className="text-xs font-bold text-gray-700 mb-2">Tingkat Potensi Longsor</p>
-          {Object.entries(WARNA_POTENSI).map(([lbl, warna]) => (
-            <div key={lbl} className="flex items-center gap-2 mb-1">
-              <div className="w-5 h-4 rounded-sm border border-gray-300 flex-shrink-0"
-                   style={{ background: warna }} />
-              <span className="text-xs text-gray-700">
-                {lbl}
-                <span className="text-gray-400 ml-1">{INTERVAL_POTENSI[lbl]}</span>
-              </span>
-            </div>
-          ))}
+      {/* ══ HEADER JUDUL + TOMBOL UNDUH ══ */}
+      <div className="px-6 py-5 flex items-start justify-between gap-4"
+           style={{ background: '#4a7c3f' }}>
+        <div>
+          <p className="text-white text-xs font-semibold uppercase tracking-widest mb-1 opacity-75">
+            Hasil Simulasi Prediksi Potensi Longsor
+          </p>
+          <h1 className="text-white font-bold text-xl leading-tight">
+            Wilayah Kecamatan {kecTitle}
+          </h1>
+          <p className="text-white text-xs opacity-70 mt-1">
+            Tanggal Simulasi: {tglFmt} &nbsp;|&nbsp; Curah Hujan Input: {curah_hujan} mm
+          </p>
         </div>
+        {simulasi_id && (
+          <button
+            onClick={unduh}
+            disabled={unduhLoad}
+            className="flex-shrink-0 px-5 py-2.5 rounded-lg font-bold text-sm border-2 border-white text-white
+                       hover:bg-white transition-all"
+            style={{ color: unduhLoad ? 'white' : 'white' }}
+            onMouseEnter={e => { e.currentTarget.style.color='#2d5a27'; e.currentTarget.style.background='white' }}
+            onMouseLeave={e => { e.currentTarget.style.color='white'; e.currentTarget.style.background='transparent' }}
+          >
+            {unduhLoad ? '⏳ Mengunduh…' : '⬇ Unduh Hasil Simulasi'}
+          </button>
+        )}
       </div>
 
-      {/* ══ KANAN: Panel hasil ══ */}
-      <div
-        className="w-80 flex-shrink-0 overflow-y-auto border-l border-gray-200 shadow-lg bg-white"
-        style={{ height: tinggiLayar }}
-      >
-        <div className="p-4 space-y-4">
+      {/* ══ KONTEN UTAMA ══ */}
+      <div className="px-6 py-4 max-w-6xl mx-auto space-y-6">
 
-          {/* Ringkasan */}
-          <div className="rounded-lg p-3 border"
-               style={{ background: '#f0fdf4', borderColor: '#86efac' }}>
-            <p className="text-xs font-bold uppercase tracking-wide text-green-800 mb-2">
-              Hasil Simulasi
-            </p>
-            <p className="font-bold text-base" style={{ color: '#1a3a2a' }}>{kecTitle}</p>
-            <p className="text-xs text-gray-500">
-              Curah Hujan: <strong>{curah_hujan} mm</strong>
-            </p>
-            <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-              <div className="bg-white rounded p-2 text-center border border-gray-100">
-                <div className="font-bold text-lg" style={{ color: '#2d6a4f' }}>
-                  {ringkasan.total_sektor}
-                </div>
-                <div className="text-gray-500">Total Sektor</div>
-              </div>
-              <div className="bg-white rounded p-2 text-center border border-gray-100">
-                <div className="font-bold text-lg"
-                     style={{ color: WARNA_POTENSI[ringkasan.label_dominan] === '#ffffbf'
-                       ? '#b8b800' : (WARNA_POTENSI[ringkasan.label_dominan] || '#666') }}>
-                  {ringkasan.rerata_potensi}%
-                </div>
-                <div className="text-gray-500">Rerata Potensi</div>
-              </div>
-            </div>
-            <div className="mt-2 text-center">
-              <span className="text-xs px-3 py-1 rounded-full font-semibold text-white"
-                    style={{ background: WARNA_POTENSI[ringkasan.label_dominan] === '#ffffbf'
-                      ? '#b8b800' : (WARNA_POTENSI[ringkasan.label_dominan] || '#888') }}>
-                Dominan: {ringkasan.label_dominan}
-              </span>
-            </div>
+        {/* ── BARIS 1: Peta kecil + Ringkasan narasi + Legenda ── */}
+        <div className="flex gap-5 items-start">
+
+          {/* Peta kecamatan terpilih */}
+          <div className="flex-shrink-0 rounded-lg overflow-hidden border border-gray-200 shadow-sm"
+               style={{ width: '280px', height: '240px' }}>
+            <MapContainer
+              center={[-7.15, 110.45]}
+              zoom={11}
+              className="w-full h-full"
+              key={kecamatan}
+              zoomControl={true}
+              scrollWheelZoom={false}
+            >
+              <TileLayer
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                attribution="© OpenStreetMap"
+              />
+              {geoData.features.length > 0 && (
+                <GeoJSON
+                  key={`geo-${simulasi_id}`}
+                  data={geoData}
+                  style={styleSektor}
+                  onEachFeature={onEachSektor}
+                />
+              )}
+            </MapContainer>
           </div>
 
-          {/* Sebaran per label */}
-          <div style={{ background: '#fff', border: '1.5px solid #c3c9c3',
-                        borderRadius: '8px', padding: '10px 14px' }}>
-            <p className="text-xs font-bold text-gray-700 mb-2">Sebaran Tingkat Potensi</p>
-            {Object.entries(ringkasan.per_label || {}).map(([lbl, info]) => (
-              <div key={lbl} className="flex items-center gap-2 mb-1">
-                <div className="w-4 h-3 rounded-sm border border-gray-300 flex-shrink-0"
-                     style={{ background: WARNA_POTENSI[lbl] }} />
-                <span className="text-xs text-gray-700 flex-1">{lbl}</span>
-                <span className="text-xs font-bold text-gray-600">
-                  {info.jumlah_sektor} sektor
-                </span>
-              </div>
-            ))}
-          </div>
+          {/* Ringkasan narasi + legenda */}
+          <div className="flex-1 space-y-3">
 
-          {/* Tabel sektor — kolom sesuai skrip */}
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">
-              Detail per Sektor
-            </p>
-            <div className="space-y-1.5 max-h-72 overflow-y-auto">
-              {[...sektor]
-                .sort((a, b) => b.prediksi_pct - a.prediksi_pct)
-                .map((s, i) => {
-                  const warnaTeks = s.warna === '#ffffbf' ? '#b8b800' : s.warna
-                  return (
-                    <div key={i} className="rounded-lg p-2 border text-xs"
-                         style={{ borderLeft: `4px solid ${s.warna}`, background: '#fafafa' }}>
-                      <div className="flex justify-between items-center">
-                        <span className="font-bold text-gray-800 truncate">{s.id_sektor}</span>
-                        <span className="font-bold ml-1" style={{ color: warnaTeks }}>
-                          {s.prediksi_pct}%
-                        </span>
-                      </div>
-                      <div className="text-gray-600">Tanah: {s.jenis_tanah}</div>
-                      <div className="text-gray-600">Pohon: {s.vegetasi}</div>
-                      <div className="text-gray-500">Luas: {s.luas_ha} Ha</div>
-                      <div className="text-gray-500">CH: {s.curah_hujan} mm</div>
-                      <div className="mt-0.5">
-                        <span className="px-1.5 py-0.5 rounded text-white text-xs font-semibold"
-                              style={{ background: warnaTeks }}>
-                          {s.label_potensi}
-                        </span>
-                      </div>
+            {/* Narasi ringkasan */}
+            <div className="rounded-lg p-4 text-sm leading-relaxed text-gray-700 border border-gray-200"
+                 style={{ background: '#f8fdf6' }}>
+              <span className="font-bold" style={{ color: '#2d5a27' }}>
+                Kecamatan {kecTitle}
+              </span>{' '}
+              memiliki rerata potensi longsor sebesar{' '}
+              <span className="font-bold">{ringkasan.rerata_potensi}%</span>
+              {' '}dengan label potensi dominan{' '}
+              <span className="font-bold"
+                    style={{ color: warnaTeks(WARNA[ringkasan.label_dominan] || '#666') }}>
+                {ringkasan.label_dominan}
+              </span>.
+              {' '}Total {ringkasan.total_sektor} sektor dianalisis,
+              dengan {sektorTinggi} sektor berpotensi tinggi–sangat tinggi (≥ 60%).
+            </div>
+
+            {/* Kotak legenda 5 tingkat */}
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">
+                Tingkat Potensi Longsor
+              </p>
+              <div className="flex gap-2 flex-wrap">
+                {Object.entries(WARNA).map(([lbl, warna]) => (
+                  <div key={lbl} className="flex flex-col items-center gap-1">
+                    <div
+                      className="rounded border border-gray-300 flex items-center justify-center
+                                 font-bold text-xs px-2 py-2 min-w-16 text-center"
+                      style={{ background: warna, color: warnaTeks(warna), minWidth: '90px' }}
+                    >
+                      {INTERVAL[lbl]}
                     </div>
-                  )
-                })}
+                    <span className="text-xs text-gray-600 text-center">{lbl}</span>
+                  </div>
+                ))}
+              </div>
             </div>
+
+            {/* Baris interval teks */}
+            <p className="text-xs text-gray-400 border-t pt-2">
+              Interval: Sangat Rendah &lt;20% &nbsp;|&nbsp; Rendah 20–40% &nbsp;|&nbsp;
+              Sedang 40–60% &nbsp;|&nbsp; Tinggi 60–80% &nbsp;|&nbsp; Sangat Tinggi ≥80%
+            </p>
+          </div>
+        </div>
+
+        {/* ══ TABEL SEKTOR ══ */}
+        <div>
+          <p className="text-sm font-bold uppercase tracking-wide mb-2"
+             style={{ color: '#2d5a27' }}>
+            Detail Prediksi per Sektor — Kecamatan {kecTitle}
+          </p>
+
+          <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr style={{ background: '#2d5a27', color: 'white' }}>
+                  {['ID Sektor', 'Jenis Tanah', 'Pohon / Vegetasi',
+                    'Luas (Ha)', 'Curah Hujan (mm)', 'Potensi (%)', 'Label Potensi']
+                    .map(h => (
+                      <th key={h} className="px-3 py-2.5 text-left font-semibold
+                                             border border-green-900 whitespace-nowrap">
+                        {h}
+                      </th>
+                    ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[...sektor]
+                  .sort((a, b) => b.prediksi_pct - a.prediksi_pct)
+                  .map((s, i) => {
+                    const wBg  = s.warna || '#eee'
+                    const wTxt = warnaTeks(wBg)
+                    return (
+                      <tr key={i}
+                          className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
+                          style={{ borderBottom: '1px solid #e5e7eb' }}>
+                        <td className="px-3 py-2 font-semibold text-gray-800 whitespace-nowrap">
+                          {s.id_sektor}
+                        </td>
+                        <td className="px-3 py-2 text-gray-700">{s.jenis_tanah}</td>
+                        <td className="px-3 py-2 text-gray-700">{s.vegetasi}</td>
+                        <td className="px-3 py-2 text-right text-gray-700">
+                          {typeof s.luas_ha === 'number' ? s.luas_ha.toFixed(2) : s.luas_ha}
+                        </td>
+                        <td className="px-3 py-2 text-right text-gray-700">{s.curah_hujan}</td>
+                        <td className="px-3 py-2 text-right font-bold"
+                            style={{ color: wTxt }}>
+                          {s.prediksi_pct}%
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className="px-2 py-0.5 rounded-full text-white text-xs font-semibold"
+                                style={{ background: wTxt }}>
+                            {s.label_potensi}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+              </tbody>
+            </table>
           </div>
 
-          {/* Unduh XLSX */}
+          {/* Footer tabel */}
+          <div className="mt-2 flex gap-6 text-xs text-gray-500">
+            <span>
+              Rerata potensi: <strong>{ringkasan.rerata_potensi}%</strong>
+            </span>
+            <span>
+              Sektor risiko tinggi (≥60%): <strong>{sektorTinggi} dari {ringkasan.total_sektor} sektor</strong>
+            </span>
+          </div>
+        </div>
+
+        {/* ══ TOMBOL BAWAH ══ */}
+        <div className="flex gap-3 pb-6">
+          <button
+            onClick={() => navigate('/simulasi')}
+            className="px-6 py-2.5 rounded-lg text-sm font-semibold border-2 transition-all"
+            style={{ borderColor: '#2d5a27', color: '#2d5a27' }}
+          >
+            ← Simulasi Baru
+          </button>
           {simulasi_id && (
             <button
               onClick={unduh}
               disabled={unduhLoad}
-              className="w-full py-2.5 rounded-xl font-bold text-sm border-2 transition-all"
-              style={{ borderColor: '#1a3a2a', color: '#1a3a2a', background: 'white' }}
+              className="px-6 py-2.5 rounded-lg text-sm font-semibold text-white transition-all"
+              style={{ background: '#2d5a27' }}
             >
-              {unduhLoad ? '⏳ Mengunduh…' : '⬇ Unduh Hasil Simulasi (.xlsx)'}
+              {unduhLoad ? '⏳ Mengunduh…' : '⬇ Unduh Hasil (.xlsx)'}
             </button>
           )}
-
-          {/* Simulasi baru */}
-          <button
-            onClick={() => navigate('/simulasi')}
-            className="w-full py-2 rounded-xl font-semibold text-sm text-white"
-            style={{ background: '#1a3a2a' }}
-          >
-            ← Simulasi Baru
-          </button>
         </div>
+
       </div>
     </div>
   )
