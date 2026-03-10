@@ -43,12 +43,18 @@ def jalankan(data: SimInput):
 
     rf, le_tanah, le_veg = get_model()
 
-    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    path = os.path.join(base, "app", "data", "geojson_export", f"{kec}.geojson")
-
-    if not os.path.exists(path):
+    fname = f"{kec}.geojson"
+    _candidates = [
+        os.path.join("/app", "backend", "app", "data", "geojson_export", fname),
+        os.path.join("/app", "app", "data", "geojson_export", fname),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "app", "data", "geojson_export", fname),
+        os.path.join("app", "data", "geojson_export", fname),
+    ]
+    path = next((p for p in _candidates if os.path.exists(p)), None)
+    if not path:
         raise HTTPException(404,
-            f"File {kec}.geojson belum ada di backend. "
+            f"File {fname} belum ada di backend. "
             f"Jalankan Divisi 3 GColab (Sel Export-2) lalu salin hasilnya ke "
             f"backend/app/data/geojson_export/")
 
