@@ -152,8 +152,11 @@ export default function Simulasi() {
       const r = await axios.post(`${API}/api/simulasi/jalankan`, {
         kecamatan: kec, curah_hujan: curahHujan,
       })
+      sessionStorage.clear()
       sessionStorage.setItem('hasil_simulasi', JSON.stringify(r.data))
-      navigate('/hasil')
+      // Beri waktu browser menyimpan sebelum navigate
+      await new Promise(res => setTimeout(res, 150))
+      navigate('/hasil', { replace: true })
     } catch (e) {
       const msg = e?.response?.data?.detail || 'Gagal menghubungi server. Periksa koneksi.'
       setError(msg)

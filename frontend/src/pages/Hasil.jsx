@@ -28,10 +28,20 @@ export default function Hasil() {
   const [unduhLoad, setUnduhLoad] = useState(false)
 
   useEffect(() => {
+    // Coba sessionStorage dulu
     const raw = sessionStorage.getItem('hasil_simulasi')
     if (raw) {
-      try { setData(JSON.parse(raw)) } catch {}
+      try {
+        const parsed = JSON.parse(raw)
+        if (parsed && parsed.kecamatan) { setData(parsed); return }
+      } catch {}
     }
+    // Fallback: ambil hasil terakhir dari Railway
+    const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+    fetch(`${API}/api/hasil/terakhir`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && d.kecamatan) setData(d) })
+      .catch(() => {})
   }, [])
 
   // Belum ada data — halaman terkunci
